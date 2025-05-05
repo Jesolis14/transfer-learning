@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identificador de Aves en Tiempo Real</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #f0f8ff;
+            color: #333;
+            padding: 20px;
+            max-width: 100vw;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: #2c5282;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        
+        /* Estilo del botón Cambiar cámara */
+        #switchCamera {
+          background-color: #3182ce; /* azul */
+          color: #fff;               /* texto blanco */
+          border: none;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-size: 1rem;
+          cursor: pointer;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+          transition: background-color 0.2s;
+        }
+        #switchCamera:hover {
+          background-color: #2b6cb0;
+        }
+
+        .camera-container {
+            position: relative;
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        #video {
+            width: 100%;
+            height: auto;
+            display: block;
+            background-color: #000;
+            border-radius: 12px;
+        }
+        
+        #canvas {
+            display: none;
+        }
+        
+        .status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-active {
+            background-color: #48bb78;
+            box-shadow: 0 0 5px #48bb78;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-inactive {
+            background-color: #f56565;
+        }
+        
+        @keyframes pulse {
+            0% {
+                opacity: 0.6;
+            }
+            50% {
+                opacity: 1;
+            }
+            100% {
+                opacity: 0.6;
+            }
+        }
+        
+        .result-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 100%;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .result-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c5282;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 24px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: #3182ce;
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(26px);
+        }
+        
+        .toggle-label {
+            font-size: 0.8rem;
+            margin-right: 5px;
+        }
+        
+        #result {
+            font-size: 1.2rem;
+            text-align: center;
+        }
+        
+        .confidence-bar {
+            height: 6px;
+            background-color: #e2e8f0;
+            border-radius: 3px;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        
+        .confidence-level {
+            height: 100%;
+            background-color: #3182ce;
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 10px 0;
+        }
+        
+        .loading::after {
+            content: "...";
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: "."; }
+            40% { content: ".."; }
+            60%, 100% { content: "..."; }
+        }
+        
+        .error {
+            color: #e53e3e;
+            text-align: center;
+            margin: 15px 0;
+            padding: 15px;
+            background-color: #fff5f5;
+            border-radius: 8px;
+            border-left: 4px solid #e53e3e;
+            display: none;
+        }
+        
+        .error-solution {
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+        
+        .error-solution ul {
+            margin-left: 20px;
+            margin-top: 5px;
+        }
+        
+        .model-status {
+            background-color: #ebf8ff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            text-align: center;
+            border-left: 4px solid #3182ce;
+        }
+        
+        .model-error {
+            background-color: #fff5f5;
+            color: #c53030;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: left;
+            border-left: 4px solid #e53e3e;
+            display: none;
+        }
+        
+        .error-details {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #718096;
+        }
+        
+        .progress-container {
+            width: 100%;
+            background-color: #e2e8f0;
+            border-radius: 4px;
+            margin-top: 10px;
+            overflow: hidden;
+            height: 8px;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: #3182ce;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .debug-info {
+            background-color: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+            font-family: monospace;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+        }
+        
+        .compatibility-warning {
+            background-color: #fffaf0;
+            color: #c05621;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            text-align: left;
+            border-left: 4px solid #ed8936;
+        }
+        
+        @media (max-width: 480px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Identificador de Aves en Tiempo Real</h1>
+        
+        <!-- Botón para alternar cámara -->
+        <div style="text-align: center; margin-bottom: 15px;">
+          <button id="switchCamera">Cambiar cámara</button>
+        </div>
+
+        <div id="compatibilityWarning" class="compatibility-warning" style="display: none;">
+            <strong>Advertencia de compatibilidad:</strong>
+            <p style="margin-top: 10px;">Tu navegador no es compatible con algunas características necesarias para esta aplicación.</p>
+            <div class="error-solution">
+                <p>Soluciones posibles:</p>
+                <ul>
+                    <li>Usa un navegador moderno como Chrome, Firefox, Safari o Edge en su última versión</li>
+                    <li>Asegúrate de que estás accediendo a través de HTTPS o localhost</li>
+                    <li>Verifica que los permisos de cámara estén habilitados en tu navegador</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="model-status" id="modelStatus">
+            Cargando modelo...
+            <div class="progress-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+        </div>
+        
+        <div class="model-error" id="modelError">
+            <div id="errorMessage">Error al cargar el modelo</div>
+            <div class="error-details" id="errorDetails"></div>
+        </div>
+        
+        <div class="camera-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+            <div class="status-badge">
+                <div class="status-indicator status-inactive" id="statusIndicator"></div>
+                <span id="statusText">Inactivo</span>
+            </div>
+        </div>
+        
+        <div class="error" id="error">
+            <div id="errorText">No se pudo acceder a la cámara. Por favor, permite el acceso.</div>
+            <div class="error-solution" id="errorSolution"></div>
+        </div>
+        
+        <div class="loading" id="loading">Identificando ave</div>
+        
+        <div class="result-container">
+            <div class="result-title">
+                <span>Resultado:</span>
+                <div style="display: flex; align-items: center;">
+                    <span class="toggle-label">Detección automática</span>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="autoDetectToggle" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div id="result">Esperando detección...</div>
+            <div class="confidence-bar">
+                <div class="confidence-level" id="confidenceLevel"></div>
+            </div>
+        </div>
+        
+        <div class="debug-info" id="debugInfo"></div>
+    </div>
+
+    <script>
+        // Referencias a elementos del DOM
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const resultDiv = document.getElementById('result');
+        const loadingDiv = document.getElementById('loading');
+        const errorDiv = document.getElementById('error');
+        const errorTextDiv = document.getElementById('errorText');
+        const errorSolutionDiv = document.getElementById('errorSolution');
+        const modelStatusDiv = document.getElementById('modelStatus');
+        const progressBar = document.getElementById('progressBar');
+        const modelErrorDiv = document.getElementById('modelError');
+        const errorMessageDiv = document.getElementById('errorMessage');
+        const errorDetailsDiv = document.getElementById('errorDetails');
+        const debugInfoDiv = document.getElementById('debugInfo');
+        const compatibilityWarningDiv = document.getElementById('compatibilityWarning');
+        const confidenceLevel = document.getElementById('confidenceLevel');
+        const autoDetectToggle = document.getElementById('autoDetectToggle');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const switchBtn = document.getElementById('switchCamera');
+        
+        // Variables para almacenar el contexto del canvas y el modelo
+        let ctx;
+        let model;
+        let isProcessing = false;
+        let autoDetectInterval;
+        let lastPrediction = "";
+        let currentCamera = 'environment';
+
+        // Configuración del modelo
+        const MODEL_INPUT_WIDTH = 224;
+        const MODEL_INPUT_HEIGHT = 224;
+        const MODEL_INPUT_CHANNELS = 3; // RGB
+        const AUTO_DETECT_INTERVAL = 1000; // 1 segundo
+        
+        // Generar nombres temporales para las 525 aves
+        const birdNames = ['GREAT TINAMOU', 'BLACK COCKATO', 'RUBY THROATED HUMMINGBIRD', 'COMMON HOUSE MARTIN', 'RAINBOW LORIKEET', 'AFRICAN OYSTER CATCHER', 'BRANDT CORMARANT', 'ALBERTS TOWHEE', 'PEACOCK', 'GREAT POTOO', 'CABOTS TRAGOPAN', 'BEARDED BELLBIRD', 'HOUSE SPARROW', 'ANNAS HUMMINGBIRD', 'LONG-EARED OWL', 'SPLENDID WREN', 'RED NAPED TROGON', 'BAY-BREASTED WARBLER', 'TIT MOUSE', 'MALACHITE KINGFISHER', 'BLONDE CRESTED WOODPECKER', 'BUSH TURKEY', 'CANVASBACK', 'IBERIAN MAGPIE', 'ROSY FACED LOVEBIRD', 'CHINESE POND HERON', 'RUFOUS KINGFISHER', 'TASMANIAN HEN', 'BLACK SKIMMER', 'TAWNY FROGMOUTH', 'ROYAL FLYCATCHER', 'AMERICAN GOLDFINCH', 'BARROWS GOLDENEYE', 'GREY PLOVER', 'WHITE BROWED CRAKE', 'EASTERN BLUEBONNET', 'DAURIAN REDSTART', 'COPPERSMITH BARBET', 'GREATER PEWEE', 'BEARDED REEDLING', 'GANG GANG COCKATOO', 'CHIPPING SPARROW', 'FASCIATED WREN', 'FLAME BOWERBIRD', 'IBISBILL', 'INCA TERN', 'ANHINGA', 'GROVED BILLED ANI', 'ASIAN GREEN BEE EATER', 'HYACINTH MACAW', 'CRIMSON CHAT', 'SMITHS LONGSPUR', 'LOGGERHEAD SHRIKE', 'HOOPOES', 'COCKATOO', 'UMBRELLA BIRD', 'EURASIAN MAGPIE', 'FIERY MINIVET', 'KOOKABURRA', 'WALL CREAPER', 'CAMPO FLICKER', 'DALMATIAN PELICAN', 'GOLDEN PIPIT', 'TROPICAL KINGBIRD', 'RED KNOT', 'RED FODY', 'EUROPEAN TURTLE DOVE', 'ROCK DOVE', 'BLUE THROATED TOUCANET', 'RED LEGGED HONEYCREEPER', 'GAMBELS QUAIL', 'HAWFINCH', 'INDIAN PITTA', 'HARLEQUIN DUCK', 'HOATZIN', 'MANDRIN DUCK', 'EMERALD TANAGER', 'MASKED BOBWHITE', 'VICTORIA CROWNED PIGEON', 'MAGPIE GOOSE', 'HARPY EAGLE', 'INDIGO FLYCATCHER', 'SCARLET FACED LIOCICHLA', 'PHILIPPINE EAGLE', 'PURPLE FINCH', 'COLLARED ARACARI', 'CAPE MAY WARBLER', 'VIOLET TURACO', 'CRANE HAWK', 'RED FACED WARBLER', 'AMERICAN ROBIN', 'CRESTED CARACARA', 'GREAT GRAY OWL', 'FIORDLAND PENGUIN', 'AFRICAN FIREFINCH', 'BALI STARLING', 'FLAME TANAGER', 'LUCIFER HUMMINGBIRD', 'SORA', 'FRILL BACK PIGEON', 'CUBAN TROGON', 'FAN TAILED WIDOW', 'WHITE CHEEKED TURACO', 'ABYSSINIAN GROUND HORNBILL', 'BORNEAN PHEASANT', 'STEAMER DUCK', 'WHITE TAILED TROPIC', 'RED HEADED WOODPECKER', 'PUFFIN', 'AFRICAN PIED HORNBILL', 'IVORY BILLED ARACARI', 'SUNBITTERN', 'GOLD WING WARBLER', 'CHUCAO TAPACULO', 'BLUE DACNIS', 'PHAINOPEPLA', 'ELEGANT TROGON', 'ROSEATE SPOONBILL', 'AFRICAN PYGMY GOOSE', 'AMERICAN WIGEON', 'ANDEAN LAPWING', 'HORNED SUNGEM', 'LAZULI BUNTING', 'WILLOW PTARMIGAN', 'GILDED FLICKER', 'IWI', 'STRIATED CARACARA', 'PYRRHULOXIA', 'POMARINE JAEGER', 'INDIAN VULTURE', 'GRAY CATBIRD', 'BLACK BAZA', 'ROADRUNNER', 'WHITE THROATED BEE EATER', 'SCARLET TANAGER', 'AZARAS SPINETAIL', 'COMMON LOON', 'CRESTED FIREBACK', 'NORTHERN GOSHAWK', 'CROW', 'CRESTED AUKLET', 'MARABOU STORK', 'GREAT ARGUS', 'WHITE EARED HUMMINGBIRD', 'MANGROVE CUCKOO', 'GOLDEN PHEASANT', 'BLACK AND YELLOW BROADBILL', 'WOOD DUCK', 'WOOD THRUSH', 'SAYS PHOEBE', 'DEMOISELLE CRANE', 'BLUE HERON', 'RED WISKERED BULBUL', 'JANDAYA PARAKEET', 'BLUE GRAY GNATCATCHER', 'RED TAILED HAWK', 'BELTED KINGFISHER', 'BIRD OF PARADISE', 'YELLOW CACIQUE', 'PARAKETT  AUKLET', 'AMERICAN FLAMINGO', 'GO AWAY BIRD', 'TURQUOISE MOTMOT', 'LIMPKIN', 'HOODED MERGANSER', 'SNOW GOOSE', 'SATYR TRAGOPAN', 'COLLARED CRESCENTCHEST', 'GREATER PRAIRIE CHICKEN', 'BLACK FACED SPOONBILL', 'VERMILION FLYCATHER', 'EASTERN WIP POOR WILL', 'HOUSE FINCH', 'CINNAMON TEAL', 'ROSE BREASTED GROSBEAK', 'CHATTERING LORY', 'ORANGE BREASTED TROGON', 'FIRE TAILLED MYZORNIS', 'GREAT JACAMAR', 'ECUADORIAN HILLSTAR', 'PARUS MAJOR', 'CALIFORNIA GULL', 'GOLDEN EAGLE', 'SCARLET MACAW', 'CERULEAN WARBLER', 'RED CROSSBILL', 'VULTURINE GUINEAFOWL', 'ALTAMIRA YELLOWTHROAT', 'CHESTNET BELLIED EUPHONIA', 'SAMATRAN THRUSH', 'KAKAPO', 'OVENBIRD', 'ORANGE BRESTED BUNTING', 'EMU', 'FRIGATE', 'ORNATE HAWK EAGLE', 'HIMALAYAN MONAL', 'GOLDEN CHEEKED WARBLER', 'CASPIAN TERN', 'RED BROWED FINCH', 'KIWI', 'GRANDALA', 'BARRED PUFFBIRD', 'MCKAYS BUNTING', 'VIOLET GREEN SWALLOW', 'CAATINGA CACHOLOTE', 'MOURNING DOVE', 'ABBOTTS BOOBY', 'AUSTRAL CANASTERO', 'EASTERN BLUEBIRD', 'BAIKAL TEAL', 'PEREGRINE FALCON', 'TAILORBIRD', 'NOISY FRIARBIRD', 'BANANAQUIT', 'COPPERY TAILED COUCAL', 'RED HEADED DUCK', 'BARN OWL', 'YELLOW BELLIED FLOWERPECKER', 'SPANGLED COTINGA', 'SHOEBILL', 'GREAT XENOPS', 'BLACKBURNIAM WARBLER', 'HAWAIIAN GOOSE', 'AUSTRALASIAN FIGBIRD', 'CUBAN TODY', 'SWINHOES PHEASANT', 'VEERY', 'KING EIDER', 'GREATOR SAGE GROUSE', 'RED WINGED BLACKBIRD', 'DOWNY WOODPECKER', 'BLACK NECKED STILT', 'BLACK BREASTED PUFFBIRD', 'JOCOTOCO ANTPITTA', 'CALIFORNIA QUAIL', 'D-ARNAUDS BARBET', 'CLARKS NUTCRACKER', 'FAIRY TERN', 'NORTHERN JACANA', 'TRUMPTER SWAN', 'CAPE ROCK THRUSH', 'DOUBLE BRESTED CORMARANT', 'CAPE GLOSSY STARLING', 'RED BEARDED BEE EATER', 'GOLDEN BOWER BIRD', 'BLUE GROSBEAK', 'AZURE JAY', 'DOUBLE EYED FIG PARROT', 'SHORT BILLED DOWITCHER', 'ALPINE CHOUGH', 'SNOW PARTRIDGE', 'STRIPPED SWALLOW', 'BLACK-NECKED GREBE', 'RED BILLED TROPICBIRD', 'CHARA DE COLLAR', 'GRAY KINGBIRD', 'SUPERB STARLING', 'BLACK HEADED CAIQUE', 'VENEZUELIAN TROUPIAL', 'BROWN NOODY', 'MASKED LAPWING', 'COCK OF THE  ROCK', 'SNOWY PLOVER', 'WHITE BREASTED WATERHEN', 'CALIFORNIA CONDOR', 'KILLDEAR', 'GYRFALCON', 'HIMALAYAN BLUETAIL', 'ALBATROSS', 'KNOB BILLED DUCK', 'GREEN BROADBILL', 'CINNAMON FLYCATCHER', 'BOBOLINK', 'CREAM COLORED WOODPECKER', 'EASTERN GOLDEN WEAVER', 'BLACK-CAPPED CHICKADEE', 'SPOTTED WHISTLING DUCK', 'RED BELLIED PITTA', 'CANARY', 'LARK BUNTING', 'BLACK FRANCOLIN', 'CRESTED WOOD PARTRIDGE', 'BANDED PITA', 'JACK SNIPE', 'CLARKS GREBE', 'MALLARD DUCK', 'SANDHILL CRANE', 'CHINESE BAMBOO PARTRIDGE', 'PALM NUT VULTURE', 'BURCHELLS COURSER', 'NORTHERN MOCKINGBIRD', 'TREE SWALLOW', 'BROWN CREPPER', 'TOWNSENDS WARBLER', 'GUINEAFOWL', 'GREEN MAGPIE', 'NORTHERN BEARDLESS TYRANNULET', 'TURKEY VULTURE', 'MILITARY MACAW', 'ARARIPE MANAKIN', 'GILA WOODPECKER', 'CRESTED NUTHATCH', 'SURF SCOTER', 'EURASIAN GOLDEN ORIOLE', 'GOULDIAN FINCH', 'VARIED THRUSH', 'BANDED STILT', 'RUFUOS MOTMOT', 'PURPLE SWAMPHEN', 'PURPLE MARTIN', 'AMERICAN REDSTART', 'LAUGHING GULL', 'YELLOW BREASTED CHAT', 'AVADAVAT', 'INLAND DOTTEREL', 'BREWERS BLACKBIRD', 'GREEN WINGED DOVE', 'ASIAN OPENBILL STORK', 'EARED PITA', 'IVORY GULL', 'NORTHERN GANNET', 'WHITE NECKED RAVEN', 'BLOOD PHEASANT', 'ABBOTTS BABBLER', 'CRESTED SERPENT EAGLE', 'APOSTLEBIRD', 'EUROPEAN GOLDFINCH', 'BALD EAGLE', 'HELMET VANGA', 'OKINAWA RAIL', 'AZURE BREASTED PITTA', 'CASSOWARY', 'TAIWAN MAGPIE', 'LITTLE AUK', 'RING-NECKED PHEASANT', 'CEDAR WAXWING', 'CARMINE BEE-EATER', 'ROUGH LEG BUZZARD', 'COMMON IORA', 'GLOSSY IBIS', 'ALEXANDRINE PARAKEET', 'PATAGONIAN SIERRA FINCH', 'WILD TURKEY', 'HORNED LARK', 'FAIRY PENGUIN', 'BULWERS PHEASANT', 'CAPE LONGCLAW', 'AMETHYST WOODSTAR', 'RED SHOULDERED HAWK', 'CAPPED HERON', 'CAPUCHINBIRD', 'OSPREY', 'OSTRICH', 'TEAL DUCK', 'AMERICAN KESTREL', 'YELLOW HEADED BLACKBIRD', 'PINK ROBIN', 'VIOLET BACKED STARLING', 'GREY HEADED FISH EAGLE', 'BLUE COAU', 'FAIRY BLUEBIRD', 'VISAYAN HORNBILL', 'ASHY THRUSHBIRD', 'MERLIN', 'HARLEQUIN QUAIL', 'RUDDY SHELDUCK', 'STRIPED OWL', 'WATTLED CURASSOW', 'CHESTNUT WINGED CUCKOO', 'PURPLE GALLINULE', 'WILSONS BIRD OF PARADISE', 'SPOTTED CATBIRD', 'NICOBAR PIGEON', 'MALAGASY WHITE EYE', 'GREAT KISKADEE', 'EASTERN YELLOW ROBIN', 'MYNA', 'RUDY KINGFISHER', 'SPOON BILED SANDPIPER', 'BLACK TAIL CRAKE', 'BLACK THROATED BUSHTIT', 'BLACK VULTURE', 'WRENTIT', 'PALILA', 'VIOLET CUCKOO', 'SCARLET CROWNED FRUIT DOVE', 'ANTBIRD', 'GREY HEADED CHACHALACA', 'CRIMSON SUNBIRD', 'BLACK THROATED WARBLER', 'CRESTED SHRIKETIT', 'HAMERKOP', 'BLACK VENTED SHEARWATER', 'AMERICAN AVOCET', 'SCARLET IBIS', 'IMPERIAL SHAQ', 'KAGU', 'COMMON STARLING', 'RAZORBILL', 'PUNA TEAL', 'GURNEYS PITTA', 'DUNLIN', 'AMERICAN PIPIT', 'CINNAMON ATTILA', 'AMERICAN DIPPER', 'CRESTED COUA', 'APAPANE', 'CRESTED KINGFISHER', 'PARADISE TANAGER', 'PYGMY KINGFISHER', 'COMMON GRACKLE', 'CHUKAR PARTRIDGE', 'RED TAILED THRUSH', 'BROWN THRASHER', 'EASTERN ROSELLA', 'SNOWY EGRET', 'NORTHERN PARULA', 'BLUE GROUSE', 'RED FACED CORMORANT', 'JABIRU', 'BORNEAN LEAFBIRD', 'CURL CRESTED ARACURI', 'ORIENTAL BAY OWL', 'CACTUS WREN', 'SNOWY SHEATHBILL', 'RUFOUS TREPE', 'BLUE MALKOHA', 'HORNED GUAN', 'COMMON POORWILL', 'ELLIOTS  PHEASANT', 'INDIGO BUNTING', 'MALABAR HORNBILL', 'BLUE THROATED PIPING GUAN', 'WOODLAND KINGFISHER', 'NORTHERN CARDINAL', 'ANDEAN SISKIN', 'TRICOLORED BLACKBIRD', 'INDIAN ROLLER', 'MASKED BOOBY', 'JACOBIN PIGEON', 'DOUBLE BARRED FINCH', 'ASIAN DOLLARD BIRD', 'ASHY STORM PETREL', 'OYSTER CATCHER', 'BALTIMORE ORIOLE', 'INDIAN BUSTARD', 'BANDED BROADBILL', 'EURASIAN BULLFINCH', 'DUSKY ROBIN', 'TAKAHE', 'RUBY CROWNED KINGLET', 'DARJEELING WOODPECKER', 'BEARDED BARBET', 'COMMON FIRECREST', 'WHITE CRESTED HORNBILL', 'AFRICAN EMERALD CUCKOO', 'BORNEAN BRISTLEHEAD', 'NORTHERN FLICKER', 'CRAB PLOVER', 'SNOWY OWL', 'EVENING GROSBEAK', 'BLACK SWAN', 'MIKADO  PHEASANT', 'NORTHERN SHOVELER', 'TOUCHAN', 'AUCKLAND SHAQ', 'LOONEY BIRDS', 'ANIANIAU', 'AZURE TIT', 'LESSER ADJUTANT', 'AMERICAN COOT', 'EASTERN TOWEE', 'AMERICAN BITTERN', 'EMPEROR PENGUIN', 'GREY CUCKOOSHRIKE', 'ZEBRA DOVE', 'WATTLED LAPWING', 'SQUACCO HERON', 'JAPANESE ROBIN', 'GRAY PARTRIDGE', 'STRIPPED MANAKIN', 'BLACK THROATED HUET', 'WHIMBREL', 'GUINEA TURACO', 'GOLDEN PARAKEET', 'PAINTED BUNTING', 'BAND TAILED GUAN', 'PLUSH CRESTED JAY', 'HEPATIC TANAGER', 'LILAC ROLLER', 'CRESTED OROPENDOLA', 'VERDIN', 'ROSE BREASTED COCKATOO', 'ASIAN CRESTED IBIS', 'ANTILLEAN EUPHONIA', 'SAND MARTIN', 'ANDEAN GOOSE', 'AFRICAN CROWNED CRANE', 'DARK EYED JUNCO', 'BLACK-THROATED SPARROW', 'NORTHERN FULMAR', 'EASTERN MEADOWLARK', 'BARN SWALLOW', 'DUSKY LORY', 'AZURE TANAGER', 'KING VULTURE', 'NORTHERN RED BISHOP', 'QUETZAL', 'REGENT BOWERBIRD', 'BUFFLEHEAD', 'ENGGANO MYNA', 'BAR-TAILED GODWIT', 'FOREST WAGTAIL', 'STORK BILLED KINGFISHER', 'SRI LANKA BLUE MAGPIE', 'EGYPTIAN GOOSE', 'GREEN JAY', 'BROWN HEADED COWBIRD', 'JAVA SPARROW', 'MALEO', 'OCELLATED TURKEY', 'GOLDEN CHLOROPHONIA', 'BALD IBIS', 'OILBIRD'].sort((a, b) => a.localeCompare(b)); 
+        
+        // Verificar compatibilidad del navegador
+        function checkBrowserCompatibility() {
+            const isCompatible = {
+                mediaDevices: !!(navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
+                webgl: hasWebGL(),
+                tensorflow: typeof tf !== 'undefined',
+                canvas: !!window.CanvasRenderingContext2D
+            };
+            
+            if (!isCompatible.mediaDevices || !isCompatible.webgl || !isCompatible.tensorflow || !isCompatible.canvas) {
+                compatibilityWarningDiv.style.display = 'block';
+                if (!isCompatible.mediaDevices) enableFileUpload();
+                return false;
+            }
+            return true;
+        }
+        
+        function hasWebGL() {
+            try {
+                const c = document.createElement('canvas');
+                return !!(window.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
+            } catch {
+                return false;
+            }
+        }
+        
+        function debug(message) {
+            console.log(message);
+        }
+        
+        function showModelError(message, details) {
+            modelErrorDiv.style.display = 'block';
+            errorMessageDiv.textContent = message;
+            if (details) {
+                errorDetailsDiv.innerHTML = details;
+                errorDetailsDiv.style.display = 'block';
+            } else {
+                errorDetailsDiv.style.display = 'none';
+            }
+            modelStatusDiv.style.display = 'none';
+            addRetryButton();
+        }
+        
+        function showCameraError(message, solution) {
+            errorDiv.style.display = 'block';
+            errorTextDiv.textContent = message;
+            if (solution) {
+                errorSolutionDiv.innerHTML = solution;
+                errorSolutionDiv.style.display = 'block';
+            } else {
+                errorSolutionDiv.style.display = 'none';
+            }
+        }
+        
+        function enableFileUpload() {
+            document.querySelector('.camera-container').style.display = 'none';
+        }
+        
+        function toggleAutoDetect(enable) {
+            if (enable) {
+                if (!autoDetectInterval) {
+                    autoDetectInterval = setInterval(captureAndIdentify, AUTO_DETECT_INTERVAL);
+                    statusIndicator.classList.remove('status-inactive');
+                    statusIndicator.classList.add('status-active');
+                    statusText.textContent = 'Activo';
+                }
+            } else {
+                if (autoDetectInterval) {
+                    clearInterval(autoDetectInterval);
+                    autoDetectInterval = null;
+                    statusIndicator.classList.remove('status-active');
+                    statusIndicator.classList.add('status-inactive');
+                    statusText.textContent = 'Inactivo';
+                }
+            }
+        }
+        
+        async function captureAndIdentify() {
+            if (isProcessing || !ctx || !model || video.readyState !== 4) return;
+            isProcessing = true;
+            try {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const tensor = preprocessImage(imageData);
+                const prediction = await model.predict(tensor);
+                const probabilities = await prediction.data();
+                const birdIndex = probabilities.indexOf(Math.max(...probabilities));
+                const confidence = Math.max(...probabilities) * 100;
+                const birdName = birdNames[birdIndex];
+                confidenceLevel.style.width = `${confidence}%`;
+                if (birdName !== lastPrediction || confidence > 80) {
+                    resultDiv.textContent = `Ave identificada: ${birdName}`;
+                    lastPrediction = birdName;
+                }
+                tensor.dispose();
+                prediction.dispose();
+            } catch (err) {
+                console.error('Error en la detección automática:', err);
+                resultDiv.textContent = 'Error en la detección: ' + err.message;
+            } finally {
+                isProcessing = false;
+            }
+        }
+        
+        async function initCamera() {
+            if (!checkBrowserCompatibility()) return;
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Tu navegador no soporta la API MediaDevices');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        facingMode: currentCamera,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
+                    audio: false
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    ctx = canvas.getContext('2d');
+                };
+                loadModel();
+            } catch (err) {
+                console.error('Error al acceder a la cámara:', err);
+                if (err.name === 'NotAllowedError') {
+                    showCameraError('No se pudo acceder a la cámara', `
+                        <p>Has denegado el permiso para usar la cámara.</p>
+                        ...
+                    `);
+                } else {
+                    showCameraError(`Error al acceder a la cámara: ${err.message}`, null);
+                }
+            }
+        }
+        
+        async function loadModel() {
+            try {
+                modelStatusDiv.innerHTML = 'Cargando modelo...<div class="progress-container"><div class="progress-bar" id="progressBar" style="width: 0%"></div></div>';
+                modelErrorDiv.style.display = 'none';
+                try {
+                    model = await tf.loadLayersModel('indexeddb://modelo-aves');
+                    modelStatusDiv.textContent = 'Modelo cargado desde caché';
+                    checkModelInputShape();
+                    if (autoDetectToggle.checked) toggleAutoDetect(true);
+                } catch {
+                    model = await tf.loadLayersModel('./model.json', {
+                        onProgress: fraction => {
+                            const percent = Math.round(fraction * 100);
+                            progressBar.style.width = `${percent}%`;
+                            modelStatusDiv.innerHTML = `Cargando modelo... ${percent}%<div class="progress-container"><div class="progress-bar" style="width: ${percent}%"></div></div>`;
+                        }
+                    });
+                    checkModelInputShape();
+                    await model.save('indexeddb://modelo-aves');
+                    modelStatusDiv.textContent = 'Modelo cargado correctamente';
+                    if (autoDetectToggle.checked) toggleAutoDetect(true);
+                }
+            } catch (loadError) {
+                console.error('Error al cargar el modelo:', loadError);
+                let errorDetails = '';
+                if (loadError.message.includes('fetch')) {
+                    errorDetails = `<p>No se pudo encontrar el archivo model.json...</p>`;
+                    showModelError('Error: No se encontró el archivo del modelo', errorDetails);
+                } else {
+                    showModelError('Error al cargar el modelo', `<p>${loadError.message}</p>`);
+                }
+            }
+        }
+        
+        function checkModelInputShape() {
+            if (!model || !model.inputs || !model.inputs[0]) return;
+            const inputShape = model.inputs[0].shape;
+            debug(`Forma de entrada del modelo: [${inputShape}]`);
+        }
+        
+        function preprocessImage(imgData) {
+            return tf.tidy(() => {
+                const tensor = tf.browser.fromPixels(imgData);
+                const resized = tensor.resizeBilinear([MODEL_INPUT_HEIGHT, MODEL_INPUT_WIDTH]);
+                const normalized = resized.div(tf.scalar(255.0));
+                return normalized.expandDims(0);
+            });
+        }
+        
+        function addRetryButton() {
+            const existing = modelErrorDiv.querySelector('button');
+            if (existing) return;
+            const btn = document.createElement('button');
+            btn.textContent = 'Reintentar cargar modelo';
+            btn.style.marginTop = '10px';
+            btn.onclick = loadModel;
+            modelErrorDiv.appendChild(btn);
+        }
+        
+        autoDetectToggle.addEventListener('change', () => {
+            toggleAutoDetect(autoDetectToggle.checked);
+        });
+        
+        // Listener del botón Cambiar cámara
+        switchBtn.addEventListener('click', () => {
+          currentCamera = (currentCamera === 'environment') ? 'user' : 'environment';
+          if (video.srcObject) {
+            video.srcObject.getTracks().forEach(t => t.stop());
+          }
+          initCamera();
+        });
+        
+        // Iniciar la aplicación
+        initCamera();
+        
+        if (typeof tf === 'undefined') {
+            showModelError('Error: TensorFlow.js no está disponible', 'No se pudo cargar la biblioteca TensorFlow.js.');
+        } else {
+            debug(`TensorFlow.js versión: ${tf.version.tfjs}`);
+        }
+    </script>
+</body>
+</html>
+
